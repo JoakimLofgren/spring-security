@@ -378,7 +378,7 @@ public class SecurityConfig extends WebSecurityConfigurerAdapter {
 
 We are currently working with the Spring Boot team on the
 https://github.com/spring-projects/spring-boot/issues/18260[Auto Configuration for Spring Security SAML Login].
-In the meantime, we have provided a Spring Boot sample that supports a Yaml configuration.
+In the meantime, we have provided a https://github.com/spring-projects/spring-security/tree/5.3.2.RELEASE/samples/boot/saml2login[Spring Boot sample] that supports a Yaml configuration.
 
 To run the sample, follow these three steps
 
@@ -417,36 +417,23 @@ hosted within the same application.
 spring:
   security:
     saml2:
-      login:
-        relying-parties:
-          - entity-id: &idp-entity-id https://simplesaml-for-spring-saml.cfapps.io/saml2/idp/metadata.php
-            registration-id: simplesamlphp
-            web-sso-url: &idp-sso-url https://simplesaml-for-spring-saml.cfapps.io/saml2/idp/SSOService.php
-            signing-credentials: &service-provider-credentials
-              - private-key: |
-                  -----BEGIN PRIVATE KEY-----
-                  MIICeAIBADANBgkqhkiG9w0BAQEFAASCAmIwggJeAgEAAoGBANG7v8QjQGU3MwQE
-                  ...................SHORTENED FOR READ ABILITY...................
-                  INrtuLp4YHbgk1mi
-                  -----END PRIVATE KEY-----
-                certificate: |
-                  -----BEGIN CERTIFICATE-----
-                  MIICgTCCAeoCCQCuVzyqFgMSyDANBgkqhkiG9w0BAQsFADCBhDELMAkGA1UEBhMC
-                  ...................SHORTENED FOR READ ABILITY...................
-                  RZ/nbTJ7VTeZOSyRoVn5XHhpuJ0B
-                  -----END CERTIFICATE-----
-            verification-credentials: &idp-certificates
-              - |
-                -----BEGIN CERTIFICATE-----
-                MIIEEzCCAvugAwIBAgIJAIc1qzLrv+5nMA0GCSqGSIb3DQEBCwUAMIGfMQswCQYD
-                ...................SHORTENED FOR READ ABILITY...................
-                lx13Y1YlQ4/tlpgTgfIJxKV6nyPiLoK0nywbMd+vpAirDt2Oc+hk
-                -----END CERTIFICATE-----
-          - entity-id: *idp-entity-id
-            registration-id: simplesamlphp2
-            web-sso-url: *idp-sso-url
-            signing-credentials: *service-provider-credentials
-            verification-credentials: *idp-certificates
+      relyingparty:
+        registration:
+          simplesamlphp:
+            signing.credentials: &service-provider-credentials
+              - private-key-location: "classpath:credentials/signing.key"
+                certificate-location: "classpath:credentials/certificate.crt"
+            identityprovider:
+              entity-id: &idp-entity-id https://simplesaml-for-spring-saml.cfapps.io/saml2/idp/metadata.php
+              sso-url: &idp-sso-url https://simplesaml-for-spring-saml.cfapps.io/saml2/idp/SSOService.php
+              verification.credentials: &idp-certificates
+                - certificate-location: "classpath:credentials/idp-certificate.crt"
+          simplesamlphp2:
+            signing.credentials: *service-provider-credentials
+            identityprovider:
+              entity-id: *idp-entity-id
+              sso-url: *idp-sso-url
+              verification.credentials: *idp-certificates
 ----
 
 If this is not desirable, you can manually override the local SP entity ID by using the
