@@ -16,10 +16,8 @@
 
 package org.springframework.security.saml2.provider.service.authentication;
 
-import java.io.ByteArrayOutputStream;
-import java.io.IOException;
-import java.io.ObjectOutputStream;
-import java.io.StringReader;
+import java.io.*;
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.Arrays;
 import java.util.Collections;
@@ -40,10 +38,14 @@ import org.joda.time.Duration;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.ExpectedException;
+import org.opensaml.core.config.ConfigurationService;
 import org.opensaml.core.xml.XMLObject;
+import org.opensaml.core.xml.config.XMLObjectProviderRegistry;
 import org.opensaml.core.xml.config.XMLObjectProviderRegistrySupport;
 import org.opensaml.core.xml.io.Marshaller;
 import org.opensaml.core.xml.io.MarshallingException;
+import org.opensaml.core.xml.io.Unmarshaller;
+import org.opensaml.core.xml.io.UnmarshallingException;
 import org.opensaml.saml.common.assertion.ValidationContext;
 import org.opensaml.saml.common.assertion.ValidationResult;
 import org.opensaml.saml.saml2.assertion.impl.OneTimeUseConditionValidator;
@@ -56,6 +58,7 @@ import org.opensaml.saml.saml2.core.EncryptedID;
 import org.opensaml.saml.saml2.core.NameID;
 import org.opensaml.saml.saml2.core.OneTimeUse;
 import org.opensaml.saml.saml2.core.Response;
+import org.opensaml.saml.saml2.core.impl.ResponseUnmarshaller;
 import org.w3c.dom.Document;
 import org.w3c.dom.Element;
 import org.xml.sax.InputSource;
@@ -72,8 +75,7 @@ import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
-import static org.opensaml.core.xml.config.XMLObjectProviderRegistrySupport.getBuilderFactory;
-import static org.opensaml.core.xml.config.XMLObjectProviderRegistrySupport.getMarshallerFactory;
+import static org.opensaml.core.xml.config.XMLObjectProviderRegistrySupport.*;
 import static org.opensaml.saml.saml2.assertion.SAML2AssertionValidationParameters.SC_VALID_RECIPIENTS;
 import static org.opensaml.saml.saml2.assertion.SAML2AssertionValidationParameters.SIGNATURE_REQUIRED;
 import static org.springframework.security.saml2.credentials.TestSaml2X509Credentials.assertingPartyEncryptingCredential;
@@ -81,11 +83,7 @@ import static org.springframework.security.saml2.credentials.TestSaml2X509Creden
 import static org.springframework.security.saml2.credentials.TestSaml2X509Credentials.assertingPartySigningCredential;
 import static org.springframework.security.saml2.credentials.TestSaml2X509Credentials.relyingPartyDecryptingCredential;
 import static org.springframework.security.saml2.credentials.TestSaml2X509Credentials.relyingPartyVerifyingCredential;
-import static org.springframework.security.saml2.provider.service.authentication.TestOpenSamlObjects.assertion;
-import static org.springframework.security.saml2.provider.service.authentication.TestOpenSamlObjects.attributeStatements;
-import static org.springframework.security.saml2.provider.service.authentication.TestOpenSamlObjects.encrypted;
-import static org.springframework.security.saml2.provider.service.authentication.TestOpenSamlObjects.response;
-import static org.springframework.security.saml2.provider.service.authentication.TestOpenSamlObjects.signed;
+import static org.springframework.security.saml2.provider.service.authentication.TestOpenSamlObjects.*;
 import static org.springframework.util.StringUtils.hasText;
 
 /**
@@ -416,6 +414,92 @@ public class OpenSamlAuthenticationProviderTests {
 				.isInstanceOf(IllegalArgumentException.class);
 	}
 
+	@Test
+	public void authenticateWithXML() {
+		String saml2Response = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n" +
+				"<saml2p:Response xmlns:saml2p=\"urn:oasis:names:tc:SAML:2.0:protocol\"\n" +
+				"                 Destination=\"https://localhost/login/saml2/sso/idp-alias\" ID=\"_528df9b6-eb65-49dd-ac54-3340e07f09f3\"\n" +
+				"                 IssueInstant=\"2020-08-05T19:26:36.331Z\" Version=\"2.0\">\n" +
+				"    <saml2:Issuer xmlns:saml2=\"urn:oasis:names:tc:SAML:2.0:assertion\">https://some.idp.test/saml2/idp</saml2:Issuer>\n" +
+				"    <ds:Signature xmlns:ds=\"http://www.w3.org/2000/09/xmldsig#\">\n" +
+				"        <ds:SignedInfo>\n" +
+				"            <ds:CanonicalizationMethod Algorithm=\"http://www.w3.org/2001/10/xml-exc-c14n#\"/>\n" +
+				"            <ds:SignatureMethod Algorithm=\"http://www.w3.org/2001/04/xmldsig-more#rsa-sha256\"/>\n" +
+				"            <ds:Reference URI=\"#_528df9b6-eb65-49dd-ac54-3340e07f09f3\">\n" +
+				"                <ds:Transforms>\n" +
+				"                    <ds:Transform Algorithm=\"http://www.w3.org/2000/09/xmldsig#enveloped-signature\"/>\n" +
+				"                    <ds:Transform Algorithm=\"http://www.w3.org/2001/10/xml-exc-c14n#\"/>\n" +
+				"                </ds:Transforms>\n" +
+				"                <ds:DigestMethod Algorithm=\"http://www.w3.org/2001/04/xmlenc#sha256\"/>\n" +
+				"                <ds:DigestValue>yttB/4UtKskioB6OlG9MrIVhLJsgjdDYhX/gi287lU0=</ds:DigestValue>\n" +
+				"            </ds:Reference>\n" +
+				"        </ds:SignedInfo>\n" +
+				"        <ds:SignatureValue>\n" +
+				"            dd5g06oHQ7fDaCZgEWjHU5uG4rQm15UEr207Me87/uNw4MM5iyB/WFxZRZD1zDR45Opyxzuz5tKy&#13;\n" +
+				"            BavX3wcUaVhakYa/N9u5OTLDC2+a6SeDSc7+fJUIWfVfLjXKakginClp4dSYD63nUuoDkP9nu3gU&#13;\n" +
+				"            BB5dZkKB50XJv19SNICMuq5bbLqQqdQeiMxO4C0lwezGmdFlNyMBjiiJWJBR0M4ZZpiQTjFGTek+&#13;\n" +
+				"            99N1geV8vvonQeIQXB3plXVs8JfTumPwz9gl77hLNSMn31QyGgZ1rFuw67pDzEfp7Vtwsk05bp4r&#13;\n" +
+				"            oBKAL/tk0it1v1VgxHxkThTYSu/AxJ1/uQjMzw==\n" +
+				"        </ds:SignatureValue>\n" +
+				"    </ds:Signature>\n" +
+				"    <saml2:Assertion xmlns:saml2=\"urn:oasis:names:tc:SAML:2.0:assertion\" ID=\"A8762f2e5-59d5-4dbd-92e7-225ab69d1533\"\n" +
+				"                     IssueInstant=\"2020-08-05T19:26:36.374Z\" Version=\"2.0\">\n" +
+				"        <saml2:Issuer>https://some.idp.test/saml2/idp</saml2:Issuer>\n" +
+				"        <saml2:Subject>\n" +
+				"            <saml2:NameID>test@saml.user</saml2:NameID>\n" +
+				"            <saml2:SubjectConfirmation Method=\"urn:oasis:names:tc:SAML:2.0:cm:bearer\">\n" +
+				"                <saml2:SubjectConfirmationData NotBefore=\"2020-08-05T19:21:36.381Z\"\n" +
+				"                                               NotOnOrAfter=\"2020-08-05T19:31:36.381Z\"\n" +
+				"                                               Recipient=\"https://localhost/login/saml2/sso/idp-alias\"/>\n" +
+				"            </saml2:SubjectConfirmation>\n" +
+				"        </saml2:Subject>\n" +
+				"        <saml2:Conditions NotBefore=\"2020-08-05T19:21:36.376Z\" NotOnOrAfter=\"2020-08-05T19:31:36.378Z\"/>\n" +
+				"        <saml2:AttributeStatement>\n" +
+				"            <saml2:Attribute Name=\"urn:oid:0.9.2342.19200300.100.1.3\">\n" +
+				"                <saml2:AttributeValue\n" +
+				"                        xmlns:xs=\"http://www.w3.org/2001/XMLSchema\"\n" +
+				"                        xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\"\n" +
+				"                        xsi:type=\"xs:anyType\"\n" +
+				"                >\n" +
+				"                    test@saml.user\n" +
+				"                </saml2:AttributeValue>\n" +
+				"            </saml2:Attribute>\n" +
+				"        </saml2:AttributeStatement>\n" +
+				"    </saml2:Assertion>\n" +
+				"</saml2p:Response>\n";
+
+		Response response = deserialize(saml2Response);
+
+		response.getAssertions()
+				.get(0)
+				.getSubject()
+				.getSubjectConfirmations()
+				.get(0)
+				.getSubjectConfirmationData()
+				.setNotOnOrAfter(DateTime.now().plus(Duration.standardDays(1)));
+
+		response.getAssertions()
+				.get(0)
+				.setConditions(conditions());
+
+		signed(response, assertingPartySigningCredential(), ASSERTING_PARTY_ENTITY_ID);
+
+		saml2Response = serialize(response);
+
+		OpenSamlAuthenticationProvider provider = new OpenSamlAuthenticationProvider();
+		Saml2AuthenticationToken token = token(saml2Response, relyingPartyVerifyingCredential());
+
+		Saml2Authentication auth = (Saml2Authentication) provider.authenticate(token);
+		assertThat(auth).isNotNull();
+		assertThat(auth.getPrincipal()).isInstanceOf(DefaultSaml2AuthenticatedPrincipal.class);
+
+		DefaultSaml2AuthenticatedPrincipal principal = (DefaultSaml2AuthenticatedPrincipal) auth.getPrincipal();
+		assertThat(principal).isNotNull();
+
+		String emailAttribute = principal.getFirstAttribute("urn:oid:0.9.2342.19200300.100.1.3");
+		assertThat(emailAttribute).isEqualTo("test@saml.user");
+	}
+
 	private <T extends XMLObject> T build(QName qName) {
 		return (T) getBuilderFactory().getBuilder(qName).buildObject(qName);
 	}
@@ -426,6 +510,20 @@ public class OpenSamlAuthenticationProviderTests {
 			Element element = marshaller.marshall(object);
 			return SerializeSupport.nodeToString(element);
 		} catch (MarshallingException e) {
+			throw new Saml2Exception(e);
+		}
+	}
+
+	private Response deserialize(String xml) {
+		try {
+			XMLObjectProviderRegistry registry = ConfigurationService.get(XMLObjectProviderRegistry.class);
+			ResponseUnmarshaller unmarshaller = (ResponseUnmarshaller) registry.getUnmarshallerFactory()
+					.getUnmarshaller(Response.DEFAULT_ELEMENT_NAME);
+			Document document = registry.getParserPool().parse(new ByteArrayInputStream(
+					xml.getBytes(StandardCharsets.UTF_8)));
+			Element element = document.getDocumentElement();
+			return (Response) unmarshaller.unmarshall(element);
+		} catch (Exception e) {
 			throw new Saml2Exception(e);
 		}
 	}
